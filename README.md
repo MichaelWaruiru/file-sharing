@@ -31,6 +31,14 @@ Each browser receives its own persistent session, keeping files isolated from ot
 * [Go](https://go.dev/)
 * Devices connected to the same local network
 
+## Platform Support
+
+* 🐧 **Linux (Ubuntu)** — Supported
+* 🪟 **Windows** — Under development
+
+> Currently, File Drop is supported on Ubuntu. Windows support is in development.
+
+
 ## Run
 
 ```bash
