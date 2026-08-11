@@ -39,62 +39,160 @@ const htmlTemplate = `
     <title>File Drop</title>
 
     <style>
+        :root {
+            --background: #121212;
+            --surface: #1a1a1a;
+            --surface-hover: #2d3748;
+            --text: #e0e0e0;
+            --heading: #ffffff;
+            --muted: #718096;
+            --file-text: #a0aec0;
+            --border: #2d3748;
+            --primary: #4299e1;
+            --primary-hover: #63b3ed;
+            --success: #48bb78;
+            --danger: #f56565;
+        }
+
+        body.light-mode {
+            --background: #f7fafc;
+            --surface: #ffffff;
+            --surface-hover: #edf2f7;
+            --text: #2d3748;
+            --heading: #1a202c;
+            --muted: #718096;
+            --file-text: #4a5568;
+            --border: #e2e8f0;
+            --primary: #3182ce;
+            --primary-hover: #2b6cb0;
+            --success: #38a169;
+            --danger: #e53e3e;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html {
+            transition: background-color 0.2s ease;
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: #121212;
-            color: #e0e0e0;
+            background-color: var(--background);
+            color: var(--text);
             margin: 0;
             padding: 20px;
+            min-height: 100vh;
             display: flex;
             flex-direction: column;
             align-items: center;
+            transition: background-color 0.2s ease, color 0.2s ease;
         }
 
         h1 {
-            color: #ffffff;
+            color: var(--heading);
+            text-align: center;
+            margin: 10px 0;
+        }
+
+        h2 {
+            color: var(--heading);
+            text-align: center;
+            margin: 25px 0 15px;
+        }
+
+        p {
+            text-align: center;
+        }
+
+        .top-bar {
+            width: 100%;
+            max-width: 900px;
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 10px;
+        }
+
+        #theme-toggle {
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px 12px;
+            cursor: pointer;
+            background: var(--surface);
+            color: var(--text);
+            font-size: 14px;
+        }
+
+        #theme-toggle:hover,
+        #theme-toggle:focus {
+            background: var(--surface-hover);
+            outline: 2px solid var(--primary);
+            outline-offset: 2px;
         }
 
         #device-info {
             width: 100%;
-            max-width: 620px;
-            background: #1a1a1a;
+            max-width: 900px;
+            background: var(--surface);
             border-radius: 8px;
             padding: 15px;
-            box-sizing: border-box;
             margin-bottom: 20px;
         }
 
         .device-row {
             display: flex;
             justify-content: space-between;
+            gap: 20px;
             padding: 6px 0;
         }
 
         .label {
-            color: #718096;
+            color: var(--muted);
         }
 
         .value {
-            color: #ffffff;
+            color: var(--heading);
             font-weight: 600;
+            text-align: right;
+        }
+
+        #connection-status {
+            margin-top: 8px;
+            color: var(--success);
+        }
+
+        .notice {
+            width: 100%;
+            max-width: 900px;
+            padding: 12px;
+            margin-bottom: 20px;
+            border-radius: 6px;
+            background: var(--surface-hover);
+            display: none;
         }
 
         #drop-zone {
-            border: 2px dashed #4299e1;
+            border: 2px dashed var(--primary);
             border-radius: 8px;
             width: 100%;
-            max-width: 600px;
-            padding: 40px 20px;
+            max-width: 850px;
+            padding: 50px 20px;
             text-align: center;
             cursor: pointer;
-            background: #1a1a1a;
-            transition: background 0.3s ease;
+            background: var(--surface);
+            transition: background-color 0.2s ease, border-color 0.2s ease;
             margin-bottom: 30px;
         }
 
         #drop-zone.hover {
-            background: #2d3748;
-            border-color: #63b3ed;
+            background: var(--surface-hover);
+            border-color: var(--primary-hover);
+        }
+
+        #drop-zone:focus {
+            outline: 2px solid var(--primary);
+            outline-offset: 3px;
         }
 
         #file-input {
@@ -103,11 +201,10 @@ const htmlTemplate = `
 
         .file-list {
             width: 100%;
-            max-width: 620px;
-            background: #1a1a1a;
+            max-width: 900px;
+            background: var(--surface);
             border-radius: 8px;
             padding: 10px;
-            box-sizing: border-box;
         }
 
         .file-item {
@@ -116,7 +213,7 @@ const htmlTemplate = `
             align-items: center;
             gap: 15px;
             padding: 12px;
-            border-bottom: 1px solid #2d3748;
+            border-bottom: 1px solid var(--border);
         }
 
         .file-item:last-child {
@@ -124,15 +221,16 @@ const htmlTemplate = `
         }
 
         .file-name {
-            color: #a0aec0;
+            color: var(--file-text);
             text-decoration: none;
             font-weight: 500;
             word-break: break-word;
+            min-width: 0;
         }
 
         .file-name:hover,
         .file-name:focus {
-            color: #4299e1;
+            color: var(--primary);
             outline: none;
             text-decoration: underline;
         }
@@ -146,14 +244,21 @@ const htmlTemplate = `
         button {
             border: none;
             border-radius: 5px;
-            padding: 7px 10px;
+            padding: 8px 12px;
             cursor: pointer;
-            background: #2d3748;
-            color: #ffffff;
+            background: var(--surface-hover);
+            color: var(--text);
+            font-size: 14px;
         }
 
         button:hover {
-            background: #4299e1;
+            background: var(--primary);
+            color: #ffffff;
+        }
+
+        button:focus {
+            outline: 2px solid var(--primary);
+            outline-offset: 2px;
         }
 
         button:disabled {
@@ -163,34 +268,127 @@ const htmlTemplate = `
 
         .status {
             margin-top: 10px;
-            color: #48bb78;
+            color: var(--success);
             font-weight: bold;
         }
 
-        #connection-status {
-            margin-top: 8px;
-            color: #48bb78;
+        @media (max-width: 600px) {
+            body {
+                padding: 12px;
+            }
+
+            h1 {
+                font-size: 26px;
+            }
+
+            h2 {
+                font-size: 21px;
+            }
+
+            #device-info,
+            .file-list,
+            .notice {
+                border-radius: 6px;
+            }
+
+            #drop-zone {
+                padding: 35px 15px;
+            }
+
+            .file-item {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .file-name {
+                width: 100%;
+            }
+
+            .file-actions {
+                width: 100%;
+            }
+
+            .file-actions button {
+                flex: 1;
+            }
         }
 
-        .notice {
-            width: 100%;
-            max-width: 620px;
-            box-sizing: border-box;
-            padding: 12px;
-            margin-bottom: 20px;
-            border-radius: 6px;
-            background: #2d3748;
-            display: none;
+        @media (min-width: 601px) and (max-width: 1024px) {
+            body {
+                padding: 18px;
+            }
+
+            #device-info,
+            .file-list,
+            .notice {
+                max-width: 800px;
+            }
+
+            #drop-zone {
+                max-width: 750px;
+            }
+        }
+
+        @media (min-width: 1025px) {
+            body {
+                padding: 30px;
+            }
+
+            #device-info,
+            .file-list,
+            .notice {
+                max-width: 1000px;
+            }
+
+            #drop-zone {
+                max-width: 900px;
+            }
+        }
+
+        @media (min-width: 1600px) {
+            body {
+                padding: 40px;
+            }
+
+            h1 {
+                font-size: 34px;
+            }
+
+            h2 {
+                font-size: 26px;
+            }
+
+            #device-info,
+            .file-list,
+            .notice {
+                max-width: 1100px;
+            }
+
+            #drop-zone {
+                max-width: 1000px;
+                padding: 70px 30px;
+            }
+
+            button {
+                padding: 10px 16px;
+                font-size: 16px;
+            }
         }
     </style>
 </head>
 
 <body>
 
+    <div class="top-bar">
+        <button id="theme-toggle" onclick="toggleTheme()">
+            ☀
+        </button>
+    </div>
+
     <h1>File Drop</h1>
 
     <p>
-        Access this dashboard on your Phone, Laptop or TV to send and receive files.
+        Send and receive files on your Phone, Laptop or TV.
     </p>
 
     <div id="device-info">
@@ -249,7 +447,7 @@ const htmlTemplate = `
                 </div>
             {{end}}
         {{else}}
-            <p style="text-align: center; color: #718096; padding: 20px;">
+            <p style="text-align: center; color: var(--muted); padding: 20px;">
                 No files shared yet.
             </p>
         {{end}}
@@ -263,6 +461,35 @@ const htmlTemplate = `
         const otherDevice = document.getElementById('other-device');
         const connectionStatus = document.getElementById('connection-status');
         const notice = document.getElementById('notice');
+        const themeToggle = document.getElementById('theme-toggle');
+
+        // Load the user's saved theme preference
+        function loadTheme() {
+            const savedTheme = localStorage.getItem('filedrop-theme');
+
+            if (savedTheme === 'light') {
+                document.body.classList.add('light-mode');
+                themeToggle.textContent = "🌙";
+            } else {
+                document.body.classList.remove('light-mode');
+                themeToggle.textContent = "☀";
+            }
+        }
+
+        // Toggle between dark and light mode
+        function toggleTheme() {
+            document.body.classList.toggle('light-mode');
+
+            const isLight = document.body.classList.contains('light-mode');
+
+            if (isLight) {
+                localStorage.setItem('filedrop-theme', 'light');
+                themeToggle.textContent = "🌙";
+            } else {
+                localStorage.setItem('filedrop-theme', 'dark');
+                themeToggle.textContent = "☀";
+            }
+        }
 
         dropZone.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
@@ -411,6 +638,7 @@ const htmlTemplate = `
                 });
         }
 
+        loadTheme();
         updateDevices();
 
         // Check for the second device periodically
