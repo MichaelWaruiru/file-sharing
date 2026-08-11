@@ -1,6 +1,9 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
@@ -9,12 +12,22 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/skip2/go-qrcode"
 )
 
 // The folder where shared files will be saved on your machine
 const uploadDir = "./shared_files"
+const sessionCookieName = "filedrop_session"
+const maxDevices = 2
+
+// Keep track of connected browser sessions
+var (
+	sessionMu sync.Mutex
+	sessions  = make(map[string]*Session)
+)
 
 // HTML Template with embedded CSS and JavaScript for the drag-and-drop interface
 const htmlTemplate = `
@@ -23,25 +36,180 @@ const htmlTemplate = `
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Go Local File Share</title>
+    <title>File Drop</title>
+
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
-        h1 { color: #ffffff; }
-        #drop-zone { border: 2px dashed #4299e1; border-radius: 8px; width: 100%; max-width: 600px; padding: 40px 20px; text-align: center; cursor: pointer; background: #1a1a1a; transition: background 0.3s ease; margin-bottom: 30px; }
-        #drop-zone.hover { background: #2d3748; border-color: #63b3ed; }
-        #file-input { display: none; }
-        .file-list { width: 100%; max-width: 620px; background: #1a1a1a; border-radius: 8px; padding: 10px; box-sizing: border-box; }
-        .file-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #2d3748; }
-        .file-item:last-child { border-bottom: none; }
-        .file-name { color: #a0aec0; text-decoration: none; font-weight: 500; }
-        .file-name:hover, .file-name:focus { color: #4299e1; outline: none; text-decoration: underline; }
-        .status { margin-top: 10px; color: #48bb78; font-weight: bold; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #121212;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 {
+            color: #ffffff;
+        }
+
+        #device-info {
+            width: 100%;
+            max-width: 620px;
+            background: #1a1a1a;
+            border-radius: 8px;
+            padding: 15px;
+            box-sizing: border-box;
+            margin-bottom: 20px;
+        }
+
+        .device-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+        }
+
+        .label {
+            color: #718096;
+        }
+
+        .value {
+            color: #ffffff;
+            font-weight: 600;
+        }
+
+        #drop-zone {
+            border: 2px dashed #4299e1;
+            border-radius: 8px;
+            width: 100%;
+            max-width: 600px;
+            padding: 40px 20px;
+            text-align: center;
+            cursor: pointer;
+            background: #1a1a1a;
+            transition: background 0.3s ease;
+            margin-bottom: 30px;
+        }
+
+        #drop-zone.hover {
+            background: #2d3748;
+            border-color: #63b3ed;
+        }
+
+        #file-input {
+            display: none;
+        }
+
+        .file-list {
+            width: 100%;
+            max-width: 620px;
+            background: #1a1a1a;
+            border-radius: 8px;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 15px;
+            padding: 12px;
+            border-bottom: 1px solid #2d3748;
+        }
+
+        .file-item:last-child {
+            border-bottom: none;
+        }
+
+        .file-name {
+            color: #a0aec0;
+            text-decoration: none;
+            font-weight: 500;
+            word-break: break-word;
+        }
+
+        .file-name:hover,
+        .file-name:focus {
+            color: #4299e1;
+            outline: none;
+            text-decoration: underline;
+        }
+
+        .file-actions {
+            display: flex;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
+        button {
+            border: none;
+            border-radius: 5px;
+            padding: 7px 10px;
+            cursor: pointer;
+            background: #2d3748;
+            color: #ffffff;
+        }
+
+        button:hover {
+            background: #4299e1;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .status {
+            margin-top: 10px;
+            color: #48bb78;
+            font-weight: bold;
+        }
+
+        #connection-status {
+            margin-top: 8px;
+            color: #48bb78;
+        }
+
+        .notice {
+            width: 100%;
+            max-width: 620px;
+            box-sizing: border-box;
+            padding: 12px;
+            margin-bottom: 20px;
+            border-radius: 6px;
+            background: #2d3748;
+            display: none;
+        }
     </style>
 </head>
+
 <body>
 
-    <h1>Go Local File Drop</h1>
-    <p>Access this dashboard on your Phone or TV Browser to send/receive files.</p>
+    <h1>File Drop</h1>
+
+    <p>
+        Access this dashboard on your Phone, Laptop or TV to send and receive files.
+    </p>
+
+    <div id="device-info">
+        <div class="device-row">
+            <span class="label">This device</span>
+            <span class="value" id="this-device">Detecting...</span>
+        </div>
+
+        <div class="device-row">
+            <span class="label">Connected device</span>
+            <span class="value" id="other-device">Waiting...</span>
+        </div>
+
+        <div id="connection-status">
+            Waiting for another device...
+        </div>
+    </div>
+
+    <div id="notice" class="notice"></div>
 
     <div id="drop-zone" tabindex="0">
         <p>Drag & Drop files here, or <strong>click to browse</strong></p>
@@ -49,16 +217,41 @@ const htmlTemplate = `
         <div id="status" class="status"></div>
     </div>
 
-    <h2>Shared Files</h2>
+    <h2>My Files</h2>
+
     <div class="file-list">
-        {{if .}}
-            {{range .}}
+        {{if .Files}}
+            {{range .Files}}
                 <div class="file-item">
-                    <a class="file-name" href="/download/{{.}}" download tabindex="0">{{.}}</a>
+
+                    <a class="file-name"
+                       href="/download/{{.Name}}"
+                       download
+                       tabindex="0">
+                        {{.Name}}
+                    </a>
+
+                    <div class="file-actions">
+
+                        <button
+                            onclick="transferFile('{{.Name}}', 'copy')"
+                            {{if not $.HasPeer}}disabled{{end}}>
+                            Send Copy
+                        </button>
+
+                        <button
+                            onclick="transferFile('{{.Name}}', 'move')"
+                            {{if not $.HasPeer}}disabled{{end}}>
+                            Send Move
+                        </button>
+
+                    </div>
                 </div>
             {{end}}
         {{else}}
-            <p style="text-align: center; color: #718096; padding: 20px;">No files shared yet.</p>
+            <p style="text-align: center; color: #718096; padding: 20px;">
+                No files shared yet.
+            </p>
         {{end}}
     </div>
 
@@ -66,48 +259,193 @@ const htmlTemplate = `
         const dropZone = document.getElementById('drop-zone');
         const fileInput = document.getElementById('file-input');
         const statusDiv = document.getElementById('status');
+        const thisDevice = document.getElementById('this-device');
+        const otherDevice = document.getElementById('other-device');
+        const connectionStatus = document.getElementById('connection-status');
+        const notice = document.getElementById('notice');
 
-        // Allow D-Pad / Keyboard activation of the drop zone
         dropZone.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === ' ') { fileInput.click(); }
+            if (e.key === 'Enter' || e.key === ' ') {
+                fileInput.click();
+            }
         });
 
         dropZone.addEventListener('click', () => fileInput.click());
 
-        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('hover'); });
-        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('hover'));
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('hover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('hover');
+        });
+
         dropZone.addEventListener('drop', (e) => {
             e.preventDefault();
             dropZone.classList.remove('hover');
             handleFiles(e.dataTransfer.files);
         });
 
-        fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+        fileInput.addEventListener('change', () => {
+            handleFiles(fileInput.files);
+        });
 
         function handleFiles(files) {
-            if (files.length === 0) return;
-            statusDiv.textContent = "Uploading " + files.length + " file(s)...";
-            
+            if (files.length === 0) {
+                return;
+            }
+
+            statusDiv.textContent =
+                "Uploading " + files.length + " file(s)...";
+
             const formData = new FormData();
+
             for (let i = 0; i < files.length; i++) {
                 formData.append('files', files[i]);
             }
 
-            fetch('/upload', { method: 'POST', body: formData })
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
             .then(response => {
                 if (response.ok) {
-                    statusDiv.textContent = "Upload successful! Reloading...";
-                    setTimeout(() => window.location.reload(), 1000);
+                    statusDiv.textContent =
+                        "Upload successful! Reloading...";
+
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 700);
                 } else {
-                    statusDiv.textContent = "Upload failed.";
+                    return response.text().then(message => {
+                        throw new Error(message);
+                    });
                 }
             })
-            .catch(() => statusDiv.textContent = "Network error occurred.");
+            .catch(error => {
+                statusDiv.textContent =
+                    error.message || "Network error occurred.";
+            });
         }
+
+        function transferFile(filename, action) {
+            let message;
+
+            if (action === "move") {
+                message =
+                    "Move \"" + filename +
+                    "\" to the other device?\n\n" +
+                    "The file will be removed from this device.";
+            } else {
+                message =
+                    "Copy \"" + filename +
+                    "\" to the other device?";
+            }
+
+            if (!confirm(message)) {
+                return;
+            }
+
+            const formData = new URLSearchParams();
+            formData.append("file", filename);
+            formData.append("action", action);
+
+            fetch("/transfer", {
+                method: "POST",
+                headers: {
+                    "Content-Type":
+                        "application/x-www-form-urlencoded"
+                },
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(message => {
+                        throw new Error(message);
+                    });
+                }
+
+                return response.text();
+            })
+            .then(() => {
+                statusDiv.textContent =
+                    action === "move"
+                        ? "File moved to the other device."
+                        : "File copied to the other device.";
+
+                setTimeout(() => {
+                    window.location.reload();
+                }, 700);
+            })
+            .catch(error => {
+                alert(error.message || "Unable to transfer file.");
+            });
+        }
+
+        function updateDevices() {
+            fetch('/devices')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error("Unable to check devices.");
+                    }
+
+                    return response.json();
+                })
+                .then(data => {
+                    thisDevice.textContent = data.this_device;
+
+                    if (data.other_device) {
+                        otherDevice.textContent = data.other_device;
+                        connectionStatus.textContent =
+                            "Connected to " + data.other_device;
+                    } else {
+                        otherDevice.textContent = "Waiting...";
+                        connectionStatus.textContent =
+                            "Waiting for another device...";
+                    }
+                })
+                .catch(() => {
+                    connectionStatus.textContent =
+                        "Unable to check connection.";
+                });
+        }
+
+        updateDevices();
+
+        // Check for the second device periodically
+        setInterval(updateDevices, 2000);
     </script>
 </body>
 </html>
 `
+
+type Session struct {
+	ID         string
+	DeviceName string
+	LastSeen   time.Time
+}
+
+type FileEntry struct {
+	Name string
+}
+
+type HomeData struct {
+	Files    []FileEntry
+	HasPeer  bool
+	ThisName string
+	PeerName string
+}
+
+type DownloadRecord struct {
+	FileName     string    `json:"file_name"`
+	DownloadedAt time.Time `json:"downloaded_at"`
+}
+
+type DeviceResponse struct {
+	ThisDevice  string `json:"this_device"`
+	OtherDevice string `json:"other_device,omitempty"`
+}
 
 func main() {
 	// Ensure the shared files directory exists
@@ -119,7 +457,9 @@ func main() {
 	// Setup HTTP Server Route Handlers
 	http.HandleFunc("/", handleHome)
 	http.HandleFunc("/upload", handleUpload)
-	http.Handle("/download/", http.StripPrefix("/download/", http.FileServer(http.Dir(uploadDir))))
+	http.HandleFunc("/transfer", handleTransfer)
+	http.HandleFunc("/download/", handleDownload)
+	http.HandleFunc("/devices", handleDevices)
 
 	// Discover your computer's real Wi-Fi IP address
 	localIP := getLocalIP()
@@ -130,13 +470,11 @@ func main() {
 	fmt.Printf("Local Host: http://localhost%s\n", port)
 	fmt.Printf("Target URL: %s\n", targetURL)
 	fmt.Println("Scan this QR code with your phone to connect instantly:")
-	fmt.Println("") // Empty space btwn qrcode
+	fmt.Println("")
 
-	// 2. Generate and print the terminal QR code
-	// qrcode.Medium refers to error correction level. true inverses colors for dark terminals.
+	// Generate and print the terminal QR code
 	qr, err := qrcode.New(targetURL, qrcode.Medium)
 	if err == nil {
-		// Prints using unicode block characters
 		fmt.Print(qr.ToSmallString(false))
 	} else {
 		fmt.Printf("Could not generate QR code: %v\n", err)
@@ -147,25 +485,210 @@ func main() {
 	}
 }
 
-// Renders the dashboard listing all active files
+// Generate secure session IDs
+func generateSessionID() (string, error) {
+	bytes := make([]byte, 32)
+
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(bytes), nil
+}
+
+// User's session
+func getSession(w http.ResponseWriter, r *http.Request) (*Session, error) {
+	sessionMu.Lock()
+	defer sessionMu.Unlock()
+
+	cookie, err := r.Cookie(sessionCookieName)
+
+	if err == nil && isValidSessionID(cookie.Value) {
+		if session, exists := sessions[cookie.Value]; exists {
+			session.LastSeen = time.Now()
+			return session, nil
+		}
+	}
+
+	if len(sessions) >= maxDevices {
+		return nil, fmt.Errorf(
+			"two devices are already connected",
+		)
+	}
+
+	sessionID, err := generateSessionID()
+	if err != nil {
+		return nil, err
+	}
+
+	session := &Session{
+		ID:         sessionID,
+		DeviceName: detectDeviceName(r.UserAgent()),
+		LastSeen:   time.Now(),
+	}
+
+	sessions[sessionID] = session
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    sessionID,
+		Path:     "/",
+		MaxAge:   60 * 60 * 24 * 365 * 10,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	return session, nil
+}
+
+// Validates session
+func isValidSessionID(id string) bool {
+	if len(id) != 64 {
+		return false
+	}
+
+	for _, char := range id {
+		if !((char >= '0' && char <= '9') ||
+			(char >= 'a' && char <= 'f') ||
+			(char >= 'A' && char <= 'F')) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Detects the device type from the browser user agent
+func detectDeviceName(userAgent string) string {
+	ua := strings.ToLower(userAgent)
+
+	if strings.Contains(ua, "smart-tv") ||
+		strings.Contains(ua, "smarttv") ||
+		strings.Contains(ua, "googletv") ||
+		strings.Contains(ua, "netcast") ||
+		strings.Contains(ua, "tizen") ||
+		strings.Contains(ua, "webos") ||
+		strings.Contains(ua, "hbbtv") {
+		return "TV"
+	}
+
+	if strings.Contains(ua, "iphone") ||
+		strings.Contains(ua, "ipad") ||
+		strings.Contains(ua, "android") {
+		return "Phone / Tablet"
+	}
+
+	if strings.Contains(ua, "windows") ||
+		strings.Contains(ua, "macintosh") ||
+		strings.Contains(ua, "linux") {
+		return "Laptop / Computer"
+	}
+
+	return "Unknown Device"
+}
+
+// Get the directory belonging to a device
+func getSessionDir(session *Session) string {
+	return filepath.Join(uploadDir, session.ID)
+}
+
+func ensureSessionDir(session *Session) error {
+	return os.MkdirAll(getSessionDir(session), os.ModePerm)
+}
+
+// Find the other connected device
+func getOtherSession(session *Session) *Session {
+	sessionMu.Lock()
+	defer sessionMu.Unlock()
+
+	for id, other := range sessions {
+		if id != session.ID {
+			return other
+		}
+	}
+
+	return nil
+}
+
+// Renders the dashboard listing all files belonging to this device
 func handleHome(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
 
-	files, err := os.ReadDir(uploadDir)
-	var fileNames []string
-	if err == nil {
-		for _, file := range files {
-			if !file.IsDir() && !strings.HasPrefix(file.Name(), ".") {
-				fileNames = append(fileNames, file.Name())
-			}
+	session, err := getSession(w, r)
+	if err != nil {
+		http.Error(w, "Two devices are already connected.", http.StatusConflict)
+		return
+	}
+
+	if err := ensureSessionDir(session); err != nil {
+		http.Error(w, "Unable to create session directory", http.StatusInternalServerError)
+		return
+	}
+
+	files, err := os.ReadDir(getSessionDir(session))
+	if err != nil {
+		http.Error(w, "Unable to read files", http.StatusInternalServerError)
+		return
+	}
+
+	var fileNames []FileEntry
+
+	for _, file := range files {
+		if !file.IsDir() &&
+			!strings.HasPrefix(file.Name(), ".") &&
+			file.Name() != "history.json" {
+			fileNames = append(fileNames, FileEntry{
+				Name: file.Name(),
+			})
 		}
 	}
 
+	other := getOtherSession(session)
+
+	data := HomeData{
+		Files:    fileNames,
+		HasPeer:  other != nil,
+		ThisName: session.DeviceName,
+	}
+
+	if other != nil {
+		data.PeerName = other.DeviceName
+	}
+
 	tmpl := template.Must(template.New("index").Parse(htmlTemplate))
-	tmpl.Execute(w, fileNames)
+
+	if err := tmpl.Execute(w, data); err != nil {
+		http.Error(w, "Unable to render page", http.StatusInternalServerError)
+		return
+	}
+}
+
+// Returns information about the two connected devices
+func handleDevices(w http.ResponseWriter, r *http.Request) {
+	session, err := getSession(w, r)
+	if err != nil {
+		http.Error(w, "Two devices are already connected.", http.StatusConflict)
+		return
+	}
+
+	other := getOtherSession(session)
+
+	response := DeviceResponse{
+		ThisDevice: session.DeviceName,
+	}
+
+	if other != nil {
+		response.OtherDevice = other.DeviceName
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Unable to encode device information", http.StatusInternalServerError)
+	}
 }
 
 // Processes multipart form data file uploads
@@ -175,40 +698,233 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	session, err := getSession(w, r)
+	if err != nil {
+		http.Error(w, "Two devices are already connected.", http.StatusConflict)
+		return
+	}
+
+	if err := ensureSessionDir(session); err != nil {
+		http.Error(w, "Unable to create session directory", http.StatusInternalServerError)
+		return
+	}
+
 	// Parse up to 200MB files into memory; anything larger streams to temp files automatically
-	err := r.ParseMultipartForm(200 << 20)
+	err = r.ParseMultipartForm(200 << 20)
 	if err != nil {
 		http.Error(w, "File too large", http.StatusBadRequest)
 		return
 	}
 
 	files := r.MultipartForm.File["files"]
+
 	for _, fileHeader := range files {
 		file, err := fileHeader.Open()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		defer file.Close()
 
-		// Protect against directory traversal attacks by taking only the base name
-		dstPath := filepath.Join(uploadDir, filepath.Base(fileHeader.Filename))
+		filename := filepath.Base(fileHeader.Filename)
+
+		dstPath := filepath.Join(getSessionDir(session), filename)
+
 		dst, err := os.Create(dstPath)
 		if err != nil {
+			file.Close()
+
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		defer dst.Close()
 
-		// Efficiently stream data from the network connection right onto your storage drive
-		if _, err := io.Copy(dst, file); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		_, copyErr := io.Copy(dst, file)
+
+		dst.Close()
+		file.Close()
+
+		if copyErr != nil {
+			http.Error(w, copyErr.Error(), http.StatusInternalServerError)
 			return
 		}
 	}
 
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprint(w, "Upload Complete")
+}
+
+// Sends a file from this device to the other connected device
+func handleTransfer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	session, err := getSession(w, r)
+	if err != nil {
+		http.Error(w, "Unable to create session", http.StatusInternalServerError)
+		return
+	}
+
+	other := getOtherSession(session)
+
+	if other == nil {
+		http.Error(w, "No other device is connected.", http.StatusConflict)
+		return
+	}
+
+	filename := filepath.Base(r.FormValue("file"))
+	action := r.FormValue("action")
+
+	if filename == "" || filename == "." {
+		http.Error(w, "Invalid filename", http.StatusBadRequest)
+		return
+	}
+
+	if action != "copy" && action != "move" {
+		http.Error(w, "Invalid transfer action", http.StatusBadRequest)
+		return
+	}
+
+	sourceDir := getSessionDir(session)
+	destinationDir := getSessionDir(other)
+
+	source := filepath.Join(sourceDir, filename)
+
+	if _, err := os.Stat(source); err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	if err := ensureSessionDir(other); err != nil {
+		http.Error(w, "Unable to create destination directory", http.StatusInternalServerError)
+		return
+	}
+
+	destination := getUniqueFilename(destinationDir, filename)
+
+	if err := copyFile(source, destination); err != nil {
+		http.Error(w, "Unable to transfer file", http.StatusInternalServerError)
+		return
+	}
+
+	if action == "move" {
+		if err := os.Remove(source); err != nil {
+			// Remove the destination again so a failed move
+			// does not leave an unexpected duplicate.
+			_ = os.Remove(destination)
+
+			http.Error(w, "Unable to complete move", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
+
+	if action == "move" {
+		fmt.Fprint(w, "File moved successfully")
+	} else {
+		fmt.Fprint(w, "File copied successfully")
+	}
+}
+
+// Copies a file from one device directory to another
+func copyFile(source, destination string) error {
+	src, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	dst, err := os.Create(destination)
+	if err != nil {
+		return err
+	}
+
+	_, err = io.Copy(dst, src)
+
+	if closeErr := dst.Close(); err == nil {
+		err = closeErr
+	}
+
+	return err
+}
+
+// Generates a unique filename if the destination already contains the file
+func getUniqueFilename(dir, filename string) string {
+	extension := filepath.Ext(filename)
+	base := strings.TrimSuffix(filename, extension)
+
+	candidate := filepath.Join(dir, filename)
+
+	if _, err := os.Stat(candidate); os.IsNotExist(err) {
+		return candidate
+	}
+
+	for i := 1; ; i++ {
+		candidateName := fmt.Sprintf("%s_copy_%d%s", base, i, extension)
+
+		candidate = filepath.Join(dir, candidateName)
+
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			return candidate
+		}
+	}
+}
+
+// Downloads a file belonging only to the current device
+func handleDownload(w http.ResponseWriter, r *http.Request) {
+	session, err := getSession(w, r)
+	if err != nil {
+		http.Error(w, "Unable to create session", http.StatusInternalServerError)
+		return
+	}
+
+	filename := strings.TrimPrefix(r.URL.Path, "/download/")
+
+	filename = filepath.Base(filename)
+
+	if filename == "" || filename == "." {
+		http.NotFound(w, r)
+		return
+	}
+
+	filePath := filepath.Join(getSessionDir(session), filename)
+
+	info, err := os.Stat(filePath)
+
+	if err != nil || info.IsDir() {
+		http.NotFound(w, r)
+		return
+	}
+
+	recordDownload(session, filename)
+
+	http.ServeFile(w, r, filePath)
+}
+
+// Records download history for the current device
+func recordDownload(session *Session, filename string) {
+	historyPath := filepath.Join(getSessionDir(session), "history.json")
+
+	var history []DownloadRecord
+
+	data, err := os.ReadFile(historyPath)
+	if err == nil {
+		_ = json.Unmarshal(data, &history)
+	}
+
+	history = append(history, DownloadRecord{
+		FileName:     filename,
+		DownloadedAt: time.Now(),
+	})
+
+	data, err = json.MarshalIndent(history, "", "    ")
+
+	if err != nil {
+		return
+	}
+
+	_ = os.WriteFile(historyPath, data, 0644)
 }
 
 // getLocalIP determines the local IP address that should be reachable
