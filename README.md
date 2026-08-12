@@ -6,11 +6,11 @@ Right now this is a skeleton which isn't polished yet to connect to devices auto
 
 ## Features
 
-* 📱 Phone, 💻 Laptop & 📺 TV support
-* 📤 Upload and download files
-* 📋 Send a copy/move to the connected device
-* 🌐 Works over the same local network
-* 🔲 Terminal QR code for quick connection
+*  Phone, Laptop & TV support
+*  Upload and download files
+*  Send a copy/move to the connected device
+*  Works over the same local network
+*  Terminal QR code for quick connection
 
 ## How It Works
 
@@ -27,8 +27,8 @@ Each browser receives its own persistent session, keeping files isolated from ot
 
 ## Platform Support
 
-* 🐧 **Linux (Ubuntu)** — Supported
-* 🪟 **Windows** — Under development
+*  **Linux (Ubuntu)** — Supported
+*  **Windows** — Under development
 
 > Currently, File Drop is supported on Ubuntu. Windows support is in development.
 
