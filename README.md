@@ -2,16 +2,14 @@
 
 A lightweight local-network file sharing application built with **Go**. Transfer files between a **phone, laptop, or TV** without relying on cloud storage.
 
+Right now this is a skeleton which isn't polished yet to connect to devices automatically, especially in cases there's no WIFI at all. I am just playing around to see the end product, or abandon it for the next 2 years. Lol!
+
 ## Features
 
 * 📱 Phone, 💻 Laptop & 📺 TV support
-* 🔗 Automatic browser sessions
-* 🔒 Private session-based file storage
 * 📤 Upload and download files
-* 📋 Send a copy to the connected device
-* 🚚 Send and move files to the connected device
+* 📋 Send a copy/move to the connected device
 * 🌐 Works over the same local network
-* 📊 Download history per session
 * 🔲 Terminal QR code for quick connection
 
 ## How It Works
@@ -26,10 +24,6 @@ The application supports **two connected devices at a time**:
 
 Each browser receives its own persistent session, keeping files isolated from other users.
 
-<!-- ## Requirements
-
-* [Go](https://go.dev/)
-* Devices connected to the same local network -->
 
 ## Platform Support
 
@@ -47,16 +41,7 @@ go run .
 
 The terminal will display a local network URL and a QR code.
 
-Scan the QR code with the second device to connect or write the second URL on the device.
-
-## Project Structure
-
-```
-.
-├── main.go
-├── shared_files/
-└── README.md
-```
+Scan the QR code with the second device to connect or copy the second URL on the device.
 
 ## Security
 
