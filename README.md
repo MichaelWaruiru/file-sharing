@@ -26,10 +26,10 @@ The application supports **two connected devices at a time**:
 
 Each browser receives its own persistent session, keeping files isolated from other users.
 
-## Requirements
+<!-- ## Requirements
 
 * [Go](https://go.dev/)
-* Devices connected to the same local network
+* Devices connected to the same local network -->
 
 ## Platform Support
 
@@ -47,7 +47,7 @@ go run .
 
 The terminal will display a local network URL and a QR code.
 
-Scan the QR code with the second device to connect.
+Scan the QR code with the second device to connect or write the second URL on the device.
 
 ## Project Structure
 
