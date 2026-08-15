@@ -1,2 +1,4 @@
 shared_files/
 wails.json
+build/
+frontend/
