@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/static/css/index.css">
+    <title>File Drop</title>
+</head>
+
+<body>
+
+    <div class="top-bar">
+        <button id="theme-toggle" onclick="toggleTheme()">
+            ☀
+        </button>
+    </div>
+
+    <h1>File Drop</h1>
+
+    <p>
+        Send and receive files on your Phone, Laptop or TV.
+    </p>
+
+    <div id="device-info">
+        <div class="device-row">
+            <span class="label">This device</span>
+            <span class="value" id="this-device">Detecting...</span>
+        </div>
+
+        <div class="device-row">
+            <span class="label">Connected device</span>
+            <span class="value" id="other-device">Waiting...</span>
+        </div>
+
+        <div id="connection-status">
+            Waiting for another device...
+        </div>
+    </div>
+
+    <div id="notice" class="notice"></div>
+
+    <div id="drop-zone" tabindex="0">
+        <p>Drag & Drop files here, or <strong>click to browse</strong></p>
+        <input type="file" id="file-input" multiple>
+        <div id="status" class="status"></div>
+    </div>
+
+    <div class="progress-container" id="progress-container">
+        <div class="progress-info">
+            <span id="progress-label">Preparing...</span>
+            <span id="progress-percent">0%</span>
+        </div>
+
+        <div class="progress-bar">
+            <div class="progress-bar-fill" id="progress-bar-fill"></div>
+        </div>
+    </div>
+
+    <h2>My Files</h2>
+
+    <div class="file-list" id="file-list"></div>
+
+    <script src="/static/js/index.js"></script>
+</body>
+
+</html>
