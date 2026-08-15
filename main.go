@@ -610,6 +610,60 @@ const htmlTemplate = `
             });
         }
 
+        async function detectDeviceName() {
+            const ua = navigator.userAgent;
+
+            if (/iPhone/i.test(ua)) {
+                return "iPhone";
+            }
+
+            if (/iPad/i.test(ua)) {
+                return "iPad";
+            }
+
+            if (/Android/i.test(ua)) {
+                if (navigator.userAgentData) {
+                    try {
+                        const data = await navigator.userAgentData.getHighEntropyValues([
+                            "model"
+                        ]);
+
+                        if (data.model) {
+                            return data.model;
+                        }
+                    } catch (error) {
+                        console.warn("Unable to detect Android model:", error);
+                    }
+                }
+
+                return /Mobile/i.test(ua)
+                    ? "Android Phone"
+                    : "Android Tablet";
+            }
+
+            if (/SMART-TV|SmartTV|Tizen/i.test(ua)) {
+                return "Samsung TV";
+            }
+
+            if (/Web0S|WebOS/i.test(ua)) {
+                return "LG TV";
+            }
+
+            if (/Windows/i.test(ua)) {
+                return "Windows PC";
+            }
+
+            if (/Macintosh|MacIntel/i.test(ua)) {
+                return "Mac";
+            }
+
+            if (/Linux/i.test(ua)) {
+                return "Linux PC";
+            }
+
+            return "Unknown Device";
+        }
+
         function updateDevices() {
             fetch('/devices')
                 .then(response => {
@@ -640,6 +694,21 @@ const htmlTemplate = `
 
         loadTheme();
         updateDevices();
+
+        // Detects specific device
+        detectDeviceName().then(deviceName => {
+            fetch("/device", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded"
+                },
+                body: new URLSearchParams({
+                    name: deviceName
+                })
+            }).then(() => {
+                updateDevices();
+            });
+        });
 
         // Check for the second device periodically
         setInterval(updateDevices, 2000);
@@ -688,6 +757,7 @@ func main() {
 	http.HandleFunc("/transfer", handleTransfer)
 	http.HandleFunc("/download/", handleDownload)
 	http.HandleFunc("/devices", handleDevices)
+	http.HandleFunc("/device", handleDevice)
 
 	// Discover your computer's real Wi-Fi IP address
 	localIP := getLocalIP()
@@ -917,6 +987,30 @@ func handleDevices(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, "Unable to encode device information", http.StatusInternalServerError)
 	}
+}
+
+// Detects specific device
+func handleDevice(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	session, err := getSession(w, r)
+	if err != nil {
+		http.Error(w, "Two devices are already connected.", http.StatusConflict)
+		return
+	}
+
+	deviceName := r.FormValue("name")
+
+	if deviceName != "" {
+		sessionMu.Lock()
+		session.DeviceName = deviceName
+		sessionMu.Unlock()
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 // Processes multipart form data file uploads
