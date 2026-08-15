@@ -490,13 +490,13 @@ const htmlTemplate = `
                         <button
                             onclick="transferFile('{{.Name}}', 'copy')"
                             {{if not $.HasPeer}}disabled{{end}}>
-                            Send Copy
+                            Copy
                         </button>
 
                         <button
                             onclick="transferFile('{{.Name}}', 'move')"
                             {{if not $.HasPeer}}disabled{{end}}>
-                            Send Move
+                            Move
                         </button>
 
                     </div>
@@ -861,12 +861,12 @@ const htmlTemplate = `
                         actions.className = "file-actions";
 
                         const copyButton = document.createElement('button');
-                        copyButton.textContent = "Send Copy";
+                        copyButton.textContent = "Copy";
                         copyButton.disabled = !data.has_peer;
                         copyButton.onclick = () => transferFile(file.name, "copy");
 
                         const moveButton = document.createElement('button');
-                        moveButton.textContent = "Send Move";
+                        moveButton.textContent = "Move";
                         moveButton.disabled = !data.has_peer;
                         moveButton.onclick = () => transferFile(file.name, "move");
 
