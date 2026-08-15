@@ -374,6 +374,51 @@ const htmlTemplate = `
                 font-size: 16px;
             }
         }
+
+        .progress-container {
+            width: 100%;
+            max-width: 900px;
+            margin: 10px 0 20px;
+            display: none;
+        }
+
+        .progress-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            font-size: 14px;
+            color: var(--muted);
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            overflow: hidden;
+            border-radius: 4px;
+            background: var(--surface-hover);
+        }
+
+        .progress-bar-fill {
+            width: 0%;
+            height: 100%;
+            background: var(--primary);
+            transition: width 0.15s ease;
+        }
+
+        .progress-bar-fill.indeterminate {
+            width: 40%;
+            animation: progress-indeterminate 1.2s infinite ease-in-out;
+        }
+
+        @keyframes progress-indeterminate {
+            0% {
+                transform: translateX(-100%);
+            }
+
+            100% {
+                transform: translateX(350%);
+            }
+        }
     </style>
 </head>
 
@@ -413,6 +458,17 @@ const htmlTemplate = `
         <p>Drag & Drop files here, or <strong>click to browse</strong></p>
         <input type="file" id="file-input" multiple>
         <div id="status" class="status"></div>
+    </div>
+
+    <div class="progress-container" id="progress-container">
+        <div class="progress-info">
+            <span id="progress-label">Preparing...</span>
+            <span id="progress-percent">0%</span>
+        </div>
+
+        <div class="progress-bar">
+            <div class="progress-bar-fill" id="progress-bar-fill"></div>
+        </div>
     </div>
 
     <h2>My Files</h2>
@@ -463,7 +519,41 @@ const htmlTemplate = `
         const notice = document.getElementById('notice');
         const themeToggle = document.getElementById('theme-toggle');
         const fileList = document.getElementById('file-list');
+        const progressContainer = document.getElementById('progress-container');
+        const progressLabel = document.getElementById('progress-label');
+        const progressPercent = document.getElementById('progress-percent');
+        const progressBarFill = document.getElementById('progress-bar-fill');
 
+        // Helper functions to show progress
+        function showProgress(label) {
+            progressContainer.style.display = "block";
+            progressLabel.textContent = label;
+            progressPercent.textContent = "0%";
+            progressBarFill.classList.remove("indeterminate");
+            progressBarFill.style.width = "0%";
+        }
+
+        function updateProgress(percent, label) {
+            progressContainer.style.display = "block";
+            progressLabel.textContent = label;
+            progressPercent.textContent = percent + "%";
+            progressBarFill.classList.remove("indeterminate");
+            progressBarFill.style.width = percent + "%";
+        }
+
+        function showIndeterminateProgress(label) {
+            progressContainer.style.display = "block";
+            progressLabel.textContent = label;
+            progressPercent.textContent = "";
+            progressBarFill.style.width = "40%";
+            progressBarFill.classList.add("indeterminate");
+        }
+
+        function hideProgress() {
+            progressContainer.style.display = "none";
+            progressBarFill.classList.remove("indeterminate");
+            progressBarFill.style.width = "0%";
+        }
         // Load the user's saved theme preference
         function loadTheme() {
             const savedTheme = localStorage.getItem('filedrop-theme');
@@ -524,34 +614,63 @@ const htmlTemplate = `
                 return;
             }
 
-            statusDiv.textContent =
-                "Uploading " + files.length + " file(s)...";
-
             const formData = new FormData();
 
             for (let i = 0; i < files.length; i++) {
                 formData.append('files', files[i]);
             }
 
-            fetch('/upload', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => {
-                if (response.ok) {
-                    statusDiv.textContent = "Upload successful!";
+            showProgress("Uploading...");
 
-                    updateFiles();
-                } else {
-                    return response.text().then(message => {
-                        throw new Error(message);
-                    });
+            const xhr = new XMLHttpRequest();
+
+            xhr.open("POST", "/upload");
+
+            xhr.upload.addEventListener("progress", (event) => {
+                if (!event.lengthComputable) {
+                    return;
                 }
-            })
-            .catch(error => {
-                statusDiv.textContent =
-                    error.message || "Network error occurred.";
+
+                const percent = Math.round(
+                    (event.loaded / event.total) * 100
+                );
+
+                updateProgress(
+                    percent,
+                    "Uploading " + files.length + " file(s)..."
+                );
             });
+
+            xhr.addEventListener("load", () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    updateProgress(100, "Upload complete");
+
+                    statusDiv.textContent = "Upload successful!";
+                    updateFiles();
+
+                    setTimeout(() => {
+                        hideProgress();
+                    }, 800);
+
+                    return;
+                }
+
+                hideProgress();
+                statusDiv.textContent =
+                    xhr.responseText || "Upload failed.";
+            });
+
+            xhr.addEventListener("error", () => {
+                hideProgress();
+                statusDiv.textContent = "Network error occurred.";
+            });
+
+            xhr.addEventListener("abort", () => {
+                hideProgress();
+                statusDiv.textContent = "Upload cancelled.";
+            });
+
+            xhr.send(formData);
         }
 
         function transferFile(filename, action) {
@@ -573,14 +692,20 @@ const htmlTemplate = `
             }
 
             const formData = new URLSearchParams();
+
             formData.append("file", filename);
             formData.append("action", action);
+
+            showIndeterminateProgress(
+                action === "move"
+                    ? "Moving " + filename + "..."
+                    : "Copying " + filename + "..."
+            );
 
             fetch("/transfer", {
                 method: "POST",
                 headers: {
-                    "Content-Type":
-                        "application/x-www-form-urlencoded"
+                    "Content-Type": "application/x-www-form-urlencoded"
                 },
                 body: formData
             })
@@ -594,14 +719,23 @@ const htmlTemplate = `
                 return response.text();
             })
             .then(() => {
+                progressPercent.textContent = "100%";
+                progressBarFill.classList.remove("indeterminate");
+                progressBarFill.style.width = "100%";
+
                 statusDiv.textContent =
                     action === "move"
                         ? "File moved to the other device."
                         : "File copied to the other device.";
 
                 updateFiles();
+
+                setTimeout(() => {
+                    hideProgress();
+                }, 800);
             })
             .catch(error => {
+                hideProgress();
                 alert(error.message || "Unable to transfer file.");
             });
         }
