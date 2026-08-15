@@ -417,7 +417,7 @@ const htmlTemplate = `
 
     <h2>My Files</h2>
 
-    <div class="file-list">
+    <div class="file-list" id="file-list">
         {{if .Files}}
             {{range .Files}}
                 <div class="file-item">
@@ -462,6 +462,7 @@ const htmlTemplate = `
         const connectionStatus = document.getElementById('connection-status');
         const notice = document.getElementById('notice');
         const themeToggle = document.getElementById('theme-toggle');
+        const fileList = document.getElementById('file-list');
 
         // Load the user's saved theme preference
         function loadTheme() {
@@ -538,12 +539,9 @@ const htmlTemplate = `
             })
             .then(response => {
                 if (response.ok) {
-                    statusDiv.textContent =
-                        "Upload successful! Reloading...";
+                    statusDiv.textContent = "Upload successful!";
 
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 700);
+                    updateFiles();
                 } else {
                     return response.text().then(message => {
                         throw new Error(message);
@@ -601,9 +599,7 @@ const htmlTemplate = `
                         ? "File moved to the other device."
                         : "File copied to the other device.";
 
-                setTimeout(() => {
-                    window.location.reload();
-                }, 700);
+                updateFiles();
             })
             .catch(error => {
                 alert(error.message || "Unable to transfer file.");
@@ -692,8 +688,71 @@ const htmlTemplate = `
                 });
         }
 
+        function updateFiles() {
+            fetch('/files')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error("Unable to check files.");
+                    }
+
+                    return response.json();
+                })
+                .then(data => {
+                    fileList.replaceChildren();
+
+                    if (data.files.length === 0) {
+                        const emptyMessage = document.createElement('p');
+
+                        emptyMessage.style.textAlign = "center";
+                        emptyMessage.style.color = "var(--muted)";
+                        emptyMessage.style.padding = "20px";
+                        emptyMessage.textContent = "No files shared yet.";
+
+                        fileList.appendChild(emptyMessage);
+                        return;
+                    }
+
+                    data.files.forEach(file => {
+                        const item = document.createElement('div');
+                        item.className = "file-item";
+
+                        const link = document.createElement('a');
+                        link.className = "file-name";
+                        link.href = "/download/" + encodeURIComponent(file.name);
+                        link.download = "";
+                        link.tabIndex = 0;
+                        link.textContent = file.name;
+
+                        const actions = document.createElement('div');
+                        actions.className = "file-actions";
+
+                        const copyButton = document.createElement('button');
+                        copyButton.textContent = "Send Copy";
+                        copyButton.disabled = !data.has_peer;
+                        copyButton.onclick = () => transferFile(file.name, "copy");
+
+                        const moveButton = document.createElement('button');
+                        moveButton.textContent = "Send Move";
+                        moveButton.disabled = !data.has_peer;
+                        moveButton.onclick = () => transferFile(file.name, "move");
+
+                        actions.appendChild(copyButton);
+                        actions.appendChild(moveButton);
+
+                        item.appendChild(link);
+                        item.appendChild(actions);
+
+                        fileList.appendChild(item);
+                    });
+                })
+                .catch(() => {
+                    console.warn("Unable to update files.");
+                });
+        }
+
         loadTheme();
         updateDevices();
+        updateFiles();
 
         // Detects specific device
         detectDeviceName().then(deviceName => {
@@ -712,6 +771,9 @@ const htmlTemplate = `
 
         // Check for the second device periodically
         setInterval(updateDevices, 2000);
+
+        // Check for file changes periodically
+        setInterval(updateFiles, 1000);
     </script>
 </body>
 </html>
@@ -724,7 +786,7 @@ type Session struct {
 }
 
 type FileEntry struct {
-	Name string
+	Name string `json:"name"`
 }
 
 type HomeData struct {
@@ -737,6 +799,11 @@ type HomeData struct {
 type DownloadRecord struct {
 	FileName     string    `json:"file_name"`
 	DownloadedAt time.Time `json:"downloaded_at"`
+}
+
+type FilesResponse struct {
+	Files   []FileEntry `json:"files"`
+	HasPeer bool        `json:"has_peer"`
 }
 
 type DeviceResponse struct {
@@ -758,6 +825,7 @@ func main() {
 	http.HandleFunc("/download/", handleDownload)
 	http.HandleFunc("/devices", handleDevices)
 	http.HandleFunc("/device", handleDevice)
+	http.HandleFunc("/files", handleFiles)
 
 	// Discover your computer's real Wi-Fi IP address
 	localIP := getLocalIP()
@@ -906,6 +974,28 @@ func getOtherSession(session *Session) *Session {
 	}
 
 	return nil
+}
+
+// Get files in the device's session automatically
+func getSessionFiles(session *Session) ([]FileEntry, error) {
+	files, err := os.ReadDir(getSessionDir(session))
+	if err != nil {
+		return nil, err
+	}
+
+	var fileNames []FileEntry
+
+	for _, file := range files {
+		if !file.IsDir() &&
+			!strings.HasPrefix(file.Name(), ".") &&
+			file.Name() != "history.json" {
+			fileNames = append(fileNames, FileEntry{
+				Name: file.Name(),
+			})
+		}
+	}
+
+	return fileNames, nil
 }
 
 // Renders the dashboard listing all files belonging to this device
@@ -1247,6 +1337,48 @@ func recordDownload(session *Session, filename string) {
 	}
 
 	_ = os.WriteFile(historyPath, data, 0644)
+}
+
+func handleFiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	session, err := getSession(w, r)
+	if err != nil {
+		http.Error(w, "Two devices are already connected.", http.StatusConflict)
+		return
+	}
+
+	files, err := os.ReadDir(getSessionDir(session))
+	if err != nil {
+		http.Error(w, "Unable to read files", http.StatusInternalServerError)
+		return
+	}
+
+	var fileNames []FileEntry
+
+	for _, file := range files {
+		if !file.IsDir() &&
+			!strings.HasPrefix(file.Name(), ".") &&
+			file.Name() != "history.json" {
+			fileNames = append(fileNames, FileEntry{
+				Name: file.Name(),
+			})
+		}
+	}
+
+	response := FilesResponse{
+		Files:   fileNames,
+		HasPeer: getOtherSession(session) != nil,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Unable to encode file information", http.StatusInternalServerError)
+	}
 }
 
 // getLocalIP determines the local IP address that should be reachable
