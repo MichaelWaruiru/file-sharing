@@ -49,7 +49,7 @@ function loadTheme() {
 
     if (savedTheme === 'light') {
         document.body.classList.add('light-mode');
-        themeToggle.textContent = "🌙";
+        themeToggle.textContent = "☾";
     } else {
         document.body.classList.remove('light-mode');
         themeToggle.textContent = "☀";
@@ -64,7 +64,7 @@ function toggleTheme() {
 
     if (isLight) {
         localStorage.setItem('filedrop-theme', 'light');
-        themeToggle.textContent = "🌙";
+        themeToggle.textContent = "☾";
     } else {
         localStorage.setItem('filedrop-theme', 'dark');
         themeToggle.textContent = "☀";
