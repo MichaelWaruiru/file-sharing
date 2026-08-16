@@ -15,6 +15,7 @@ Right now this is a skeleton which isn't polished yet to connect to devices auto
 ## How It Works
 
 Run the server on one device and open the generated network address on another device connected to the **same Wi-Fi/network**.
+
 **Note:** It runs as desktop and/or on browser.
 
 The application supports **two connected devices at a time**:
