@@ -43,8 +43,9 @@ go run .
 *Note*: For desktop applications:
 Run:
 ```bash
- wails build -tags webkit2_41
+ wails build -tags webkit2_41 (Ubuntu version)
 ```
+You can read wails documentation [here](https://v2.wails.io/).
 Then:
  ```bash
     ./build/bin/file-drop
