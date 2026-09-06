@@ -40,6 +40,15 @@ Each browser receives its own persistent session, keeping files isolated from ot
 ```bash
 go run .
 ```
+*Note*: For desktop applications:
+Run:
+```bash
+ wails build -tags webkit2_41
+```
+Then:
+ ```bash
+    ./build/bin/file-drop
+```
 
 The terminal will display a local network URL and a QR code.
 
