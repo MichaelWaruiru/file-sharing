@@ -14,19 +14,18 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/skip2/go-qrcode"
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-// The folder where shared files will be saved on your machine
-const uploadDir = "./shared_files"
+// Global variables for storage paths and session configurations
+var uploadDir string
+
 const sessionCookieName = "filedrop_session"
 const maxDevices = 2
 const sessionTimeout = 30 * time.Second
@@ -38,8 +37,6 @@ var (
 	desktopSession *Session
 )
 
-// HTML Template with embedded CSS and JavaScript for the drag-and-drop interface
-//
 //go:embed template/index.html static
 var embeddedFiles embed.FS
 
@@ -80,10 +77,26 @@ type contextKey string
 const desktopContextKey contextKey = "filedrop-desktop"
 
 type App struct {
-	ctx context.Context
+	v3App *application.App
 }
 
 func main() {
+	// 1. Resolve storage directory dynamically depending on execution environment (Android vs Desktop)
+	if runtime.GOOS == "android" {
+		filesDir := os.Getenv("FILES_DIR")
+		if filesDir == "" {
+			filesDir = "/data/data/com.wails.app/files"
+		}
+		uploadDir = filepath.Join(filesDir, "shared_files")
+	} else {
+		uploadDir = "./shared_files"
+	}
+
+	// Create storage folder with appropriate permissions
+	if err := os.MkdirAll(uploadDir, os.ModePerm); err != nil {
+		fmt.Printf("Failed to create storage directory: %v\n", err)
+	}
+
 	// Clean sessions
 	go cleanupSessions()
 
@@ -110,11 +123,6 @@ func main() {
 
 	mux.Handle("/static/", staticHandler)
 
-	if err := os.MkdirAll(uploadDir, os.ModePerm); err != nil {
-		fmt.Printf("Failed to create directory: %v\n", err)
-		return
-	}
-
 	localIP := getLocalIP()
 	port := ":8080"
 	targetURL := fmt.Sprintf("http://%s%s", localIP, port)
@@ -134,7 +142,7 @@ func main() {
 	}
 
 	go func() {
-		if err := http.ListenAndServe(port, mux); err != nil {
+		if err := http.ListenAndServe("0.0.0.0:8080", mux); err != nil {
 			fmt.Printf("Error starting LAN server: %v\n", err)
 		}
 	}()
@@ -144,31 +152,37 @@ func main() {
 		mux.ServeHTTP(w, r.WithContext(ctx))
 	})
 
-	app := &App{}
-
-	err = wails.Run(&options.App{
-		Title:     "File Drop",
-		Width:     1024,
-		Height:    768,
-		OnStartup: app.startup,
-		AssetServer: &assetserver.Options{
-			Assets:  embeddedFiles,
+	// Instantiate Wails v3 Application
+	appStruct := &App{}
+	wailsApp := application.New(application.Options{
+		Name:        "File Drop",
+		Description: "LAN File Sharing App",
+		Assets: application.AssetOptions{
 			Handler: wailsHandler,
 		},
-		Bind: []interface{}{
-			app,
+		Services: []application.Service{
+			application.NewService(appStruct),
 		},
 	})
 
+	// Store app reference inside App struct if needed for dialogs
+	appStruct.v3App = wailsApp
+
+	// Create Window in v3
+	wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:  "File Drop",
+		Width:  1024,
+		Height: 768,
+		URL:    "http://127.0.0.1:8080/",
+	})
+
+	err = wailsApp.Run()
 	if err != nil {
 		fmt.Printf("Error starting File Drop: %v\n", err)
 	}
 }
 
-func (a *App) startup(ctx context.Context) {
-	a.ctx = ctx
-}
-
+// DownloadFile uses the Wails v3 dialog system instead of v2 runtime context
 func (a *App) DownloadFile(filename string) error {
 	session := desktopSession
 
@@ -182,11 +196,15 @@ func (a *App) DownloadFile(filename string) error {
 		return err
 	}
 
-	destination, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		Title:           "Save File",
-		DefaultFilename: filepath.Base(filename),
-	})
+	// Wails v3 Save File Dialog API
+	if a.v3App == nil {
+		return fmt.Errorf("application not available")
+	}
 
+	dialog := a.v3App.Dialog.SaveFile()
+	dialog.SetFilename(filepath.Base(filename))
+
+	destination, err := dialog.PromptForSingleSelection()
 	if err != nil {
 		return err
 	}
@@ -392,7 +410,7 @@ func getSessionFiles(session *Session) ([]FileEntry, error) {
 	return fileNames, nil
 }
 
-// Renders the dashboard listing all files belonging to this device
+// 2. Safely parse embedded template for root "/" route across desktop and Android WebViews
 func handleHome(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
@@ -440,18 +458,14 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 		data.PeerName = other.DeviceName
 	}
 
-	templateData, err := embeddedFiles.ReadFile("template/index.html")
+	// Use template.ParseFS to resolve templates reliably from embedded FS in Wails
+	tmpl, err := template.ParseFS(embeddedFiles, "template/index.html")
 	if err != nil {
-		http.Error(w, "Unable to load page template", http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Unable to parse page template: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	tmpl, err := template.New("index").Parse(string(templateData))
-	if err != nil {
-		http.Error(w, "Unable to parse page template", http.StatusInternalServerError)
-		return
-	}
-
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.Execute(w, data); err != nil {
 		http.Error(w, "Unable to render page", http.StatusInternalServerError)
 		return
