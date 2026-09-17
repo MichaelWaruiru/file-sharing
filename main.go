@@ -149,7 +149,11 @@ func main() {
 
 	wailsHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := context.WithValue(r.Context(), desktopContextKey, true)
-		mux.ServeHTTP(w, r.WithContext(ctx))
+		request := r.WithContext(ctx)
+		if request.URL.Path == "/index.html" {
+			request.URL.Path = "/"
+		}
+		mux.ServeHTTP(w, request)
 	})
 
 	// Instantiate Wails v3 Application
