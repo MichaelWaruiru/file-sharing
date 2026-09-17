@@ -1,8 +1,12 @@
 # File Drop
 
-A lightweight local-network file sharing application built with **Go**. Transfer files between a **phone, laptop, or TV** without relying on cloud storage.
+A lightweight local-network file sharing application(both desktop and android app) built with **Go**. Transfer files between a **phone, laptop, or TV** without relying on cloud storage.
 
 Right now this is a skeleton which isn't polished yet to connect to devices automatically, especially in cases there's no WIFI at all. I am just playing around to see the end product, or abandon it for the next 2 years. Lol!
+
+## DISCLAIMER
+
+Wails3 is still in beta stage so this may work for me, but not work for you. Fuck around and find it like I did!
 
 ## Features
 
@@ -16,7 +20,7 @@ Right now this is a skeleton which isn't polished yet to connect to devices auto
 
 Run the server on one device and open the generated network address on another device connected to the **same Wi-Fi/network**.
 
-*Note:* It runs as desktop and/or on browser.
+*Note:* It runs as desktop app, android app and on browser.
 
 The application supports **two connected devices at a time**:
 
@@ -44,14 +48,34 @@ go run .
 
 Run:
 ```bash
- wails build -tags webkit2_41 (Ubuntu version)
+ wails3 build (Ubuntu version)
 ```
-You can read wails documentation [here](https://v2.wails.io/).
 
 Then:
  ```bash
-    ./build/bin/file-drop
+    ./bin/file-drop
 ```
+
+*Note*: For mobile applications:
+
+Run:
+```bash
+ wails3 task android:build (Ubuntu version)
+```
+
+Make sure your emulator is running using:
+
+```bash
+emulator -avd wails &
+```
+
+Run:
+```bash
+ wails3 task android:run (Ubuntu version)
+```
+You can read wails documentation on how to go about desktop app [here](https://v3.wails.io/) and about mobile app [here](https://v3.wails.io/guides/mobile/first-mobile-app/).
+
+
 
 The terminal will display a local network URL and a QR code.
 
