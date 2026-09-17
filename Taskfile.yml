@@ -1,0 +1,29 @@
+version: '3'
+
+env:
+  ANDROID_HOME: /home/mcpinder/Android
+  ANDROID_NDK: /home/mcpinder/Android/ndk/26.3.11579264
+
+tasks:
+  android:build:
+    desc: Syncs single-file HTML frontend, compiles Go library, and packages APK
+    env:
+      CGO_ENABLED: 1
+      GOOS: android
+      GOARCH: amd64
+      CC: "{{.ANDROID_NDK}}/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android34-clang"
+    cmds:
+      - wails3 generate bindings -f "-tags android"
+      - mkdir -p build/android/app/src/main/assets
+      - cp template/index.html build/android/app/src/main/assets/index.html
+      - mkdir -p build/android/app/src/main/jniLibs/x86_64
+      - go build -tags android -buildmode=c-shared -o build/android/app/src/main/jniLibs/x86_64/libwails.so .
+      - cd build/android && ./gradlew assembleDebug
+
+  android:run:
+    desc: Waits for emulator boot and deploys the Gradle APK
+    deps: [android:build]
+    cmds:
+      - adb wait-for-device shell 'while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 1; done'
+      - adb install -r build/android/app/build/outputs/apk/debug/app-debug.apk
+      - adb shell am start -n com.wails.app/.MainActivity
