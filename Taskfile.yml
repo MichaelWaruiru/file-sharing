@@ -11,7 +11,8 @@ tasks:
       CGO_ENABLED: 1
       GOOS: android
     cmds:
-      - wails3 generate bindings -f "-tags android"
+      # Run binding generation without CGO or Android OS constraints
+      - CGO_ENABLED=0 GOOS="" wails3 generate bindings -f "-tags android"
       - mkdir -p build/android/app/src/main/assets
       - cp template/index.html build/android/app/src/main/assets/index.html
       - rm -rf build/android/app/src/main/jniLibs
