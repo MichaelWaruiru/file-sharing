@@ -12,6 +12,7 @@ const progressContainer = document.getElementById('progress-container');
 const progressLabel = document.getElementById('progress-label');
 const progressPercent = document.getElementById('progress-percent');
 const progressBarFill = document.getElementById('progress-bar-fill');
+let detectedDeviceName = null;
 
 // Helper functions to show progress
 function showProgress(label) {
@@ -240,6 +241,18 @@ async function detectDeviceName() {
         return "iPad";
     }
 
+    if (/BRAVIA|Sony/i.test(ua)) {
+        return "Sony TV";
+    }
+
+    if (/SMART-TV|SmartTV|Tizen/i.test(ua)) {
+        return "Samsung TV";
+    }
+
+    if (/WebOS/i.test(ua)) {
+        return "LG TV";
+    }
+
     if (/Android/i.test(ua)) {
         if (navigator.userAgentData) {
             try {
@@ -255,21 +268,19 @@ async function detectDeviceName() {
             }
         }
 
+        // Android WebViews commonly expose the model in the legacy UA even
+        // when User-Agent Client Hints are unavailable.
+        const modelMatch = ua.match(/Android[^;)]*;\s*(?:[a-z]{2}(?:-[A-Z]{2})?;\s*)?([^;)]+?)(?:\s+Build\/[^;)]+)?(?:[;)]|$)/i);
+        if (modelMatch && modelMatch[1]) {
+            const model = modelMatch[1].trim();
+            if (model && !/^(wv|mobile)$/i.test(model)) {
+                return model;
+            }
+        }
+
         return /Mobile/i.test(ua)
             ? "Android Phone"
             : "Android Tablet";
-    }
-
-    if (/SMART-TV|SmartTV|Tizen/i.test(ua)) {
-        return "Samsung TV";
-    }
-
-    if (/BRAVIA|Sony/i.test(ua)) {
-        return "Sony TV";
-    }
-
-    if (/WebOS/i.test(ua)) {
-        return "LG TV";
     }
 
     if (/Windows/i.test(ua)) {
@@ -297,7 +308,9 @@ function updateDevices() {
             return response.json();
         })
         .then(data => {
-            thisDevice.textContent = data.this_device;
+            if (!detectedDeviceName || data.this_device !== "Unknown Device") {
+                thisDevice.textContent = data.this_device;
+            }
 
             if (data.other_device) {
                 otherDevice.textContent = data.other_device;
@@ -398,6 +411,9 @@ updateFiles();
 
 // Detects specific device
 detectDeviceName().then(deviceName => {
+    detectedDeviceName = deviceName;
+    thisDevice.textContent = deviceName;
+
     fetch("/device", {
         method: "POST",
         headers: {
@@ -409,6 +425,8 @@ detectDeviceName().then(deviceName => {
     }).then(() => {
         updateDevices();
     });
+}).catch(() => {
+    detectedDeviceName = "Unknown Device";
 });
 
 // Check for the second device periodically
