@@ -264,7 +264,11 @@ async function detectDeviceName() {
         return "Samsung TV";
     }
 
-    if (/Web0S|WebOS/i.test(ua)) {
+    if (/BRAVIA|Sony/i.test(ua)) {
+        return "Sony TV";
+    }
+
+    if (/WebOS/i.test(ua)) {
         return "LG TV";
     }
 
