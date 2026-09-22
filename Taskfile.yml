@@ -6,18 +6,33 @@ env:
 
 tasks:
   android:build:
-    desc: Syncs single-file HTML frontend, compiles Go library, and packages APK
+    desc: Syncs single-file HTML frontend, compiles Go libraries for all Android ABIs, and packages APK
     env:
       CGO_ENABLED: 1
       GOOS: android
-      GOARCH: amd64
-      CC: "{{.ANDROID_NDK}}/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android34-clang"
     cmds:
       - wails3 generate bindings -f "-tags android"
       - mkdir -p build/android/app/src/main/assets
       - cp template/index.html build/android/app/src/main/assets/index.html
-      - mkdir -p build/android/app/src/main/jniLibs/x86_64
-      - go build -tags android -buildmode=c-shared -o build/android/app/src/main/jniLibs/x86_64/libwails.so .
+      - rm -rf build/android/app/src/main/jniLibs
+      - mkdir -p build/android/app/src/main/jniLibs
+      - |
+        set -e
+        TOOLCHAIN="{{.ANDROID_NDK}}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+        build_abi() {
+          arch="$1"
+          abi="$2"
+          compiler="$3"
+          mkdir -p "build/android/app/src/main/jniLibs/$abi"
+          GOARCH="$arch" GOARM="$4" CC="$TOOLCHAIN/$compiler" \
+            CGO_ENABLED=1 GOOS=android \
+            go build -tags android -buildmode=c-shared \
+            -o "build/android/app/src/main/jniLibs/$abi/libwails.so" .
+        }
+        build_abi arm64 arm64-v8a aarch64-linux-android21-clang ""
+        build_abi arm armeabi-v7a armv7a-linux-androideabi21-clang 7
+        build_abi amd64 x86_64 x86_64-linux-android21-clang ""
+        build_abi 386 x86 i686-linux-android21-clang ""
       - cd build/android && ./gradlew assembleDebug
 
   android:run:
@@ -27,3 +42,9 @@ tasks:
       - adb wait-for-device shell 'while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 1; done'
       - adb install -r build/android/app/build/outputs/apk/debug/app-debug.apk
       - adb shell am start -n com.wails.app/.MainActivity
+
+  android:build:release:
+    desc: Builds a signed release APK containing all Android ABIs
+    deps: [android:build]
+    cmds:
+      - cd build/android && ./gradlew assembleRelease
